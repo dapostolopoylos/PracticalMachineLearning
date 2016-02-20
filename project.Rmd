@@ -1,0 +1,131 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Created by: Dimitrios Apostolopoulos"
+output: html_document
+---
+
+## Background information and purpose of this project
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: <http://groupware.les.inf.puc-rio.br/har> (see the section on the Weight Lifting Exercise Dataset).
+
+The goal of this project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did.
+
+```{r loadRData, echo=FALSE}
+load(".RData")
+
+```
+
+## Enviroment preparation and data cleansig
+
+For the purposes of this project we will use two separate data sets, the [train data set](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv) and the [test data set](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv). We download the data sets and store them in a data folder inside the working directory. Because of the fact that there are many broken data in both data sets with values like "NA","#DIV/0!", "", when reading the data into R, we define all broken data as *na.strings* in order to remove them afterwards.
+
+```{r readDataSets,eval=FALSE}
+## Read the train and test datasets that have already been downloaded.
+train <- read.csv("data/pml-training.csv",sep=",",header = TRUE,stringsAsFactors = FALSE,na.strings = c("NA","#DIV/0!", ""))
+test <- read.csv("data/pml-testing.csv",sep=",",header = TRUE,stringsAsFactors = FALSE,na.strings = c("NA","#DIV/0!", ""))
+```
+
+When data are loaded in our workspace we do some data cleansing.
+
+```{r CleanData,eval=FALSE}
+## Remove all broken data and the two first columns of both data sets ('X','user_name') that are of no use.
+test<-test[,colSums(is.na(test)) == 0]
+test<-test[,-c(1,2)]
+train<-train[,colSums(is.na(train)) == 0]
+train<-train[,-c(1,2)]
+```
+
+Afterwards we set seed in a certain value in order to be our analysis reproducable and load all the necessary libraries for our analysis.
+
+```{r loadLibraries, message=FALSE, warning=FALSE}
+## Set seed and load necessary libraries
+set.seed(12345)
+library(caret)
+library(rpart)
+library(randomForest)
+library(doParallel)
+```
+
+## Model Fitting
+
+We start the search of the better prediction model for our analysis, doing data splitting in the train data frame in order to create a training data frame which will use to do model fitting and an evaluation data frame which will use to evaluate the accuracy of our model. We use caret's *createDataPartition* function. 
+
+```{r dataSplitting, eval=FALSE}
+inTrain <- createDataPartition(train$classe,p=0.6,list=FALSE)
+myTrain <- train[inTrain,] 
+myTest <- train[-inTrain,]
+```
+
+### Classification trees
+
+Our first attempts to find the best prediction model are all about classification trees. We try to fit a model using rpart but even when using cross valitation and preprocessing the accuracy of our model is pretty low (0.4906) as we can see in [Figure 1][] in the Appendix.
+
+```{r classificationTrees, eval=FALSE}
+## Classification Tree with Cross validation and Preprocessing
+train_control <- trainControl(method="cv", number=5)
+fitCL_CV_PR <- train(myTrain$classe~.,data=myTrain,method="rpart",trControl=train_control,preProcess=c("center", "scale"))
+predCL_CV_PR <- predict(fitCL_CV_PR,myTest)
+confusionMatrix(predCL_CV_PR,myTest$classe) 
+```
+
+### Random Forest
+
+Our second attempt is about trying to fit a prediction model using random forest. Because random forest is a very cpu and memory consuming algorithm we will do parallel processing in order to speed up the process of the model.
+
+```{r randomForest, eval=FALSE}
+# Number of cores to use
+cl <- makeCluster(20)
+registerDoParallel(cl)
+## Random Forest
+fitRF <- train(myTrain$classe~.,data=myTrain,method="rf",allowParallel = TRUE)
+stopCluster(cl)	
+predRF <- predict(fitRF,myTest) 
+confusionMatrix(predRF,myTest$classe)
+
+```
+
+As we can see in [Figure 2][] of the Appendix the results of our random forest prediction model are really good as we have achieved an almost perfect Accuracy for aour model (0.9996). 
+
+Trying to achieve perfection, we try to fit another model using again random forest with cross validation this time.
+
+```{r randomForestCV, eval=FALSE}
+#Number of cores to use
+cl <- makeCluster(20)
+registerDoParallel(cl)
+## Random Forest with Cross Validation
+fitRF_CV <- train(myTrain$classe~.,data=myTrain,trControl=train_control,method="rf",allowParallel = TRUE)
+stopCluster(cl)
+predRF_CV <- predict(fitRF_CV,myTest)
+confusionMatrix(predRF_CV,myTest$classe)
+```
+
+As we can see in [Figure 3][] in the Appendix, cross validation not only didn't improve our model but also has slightly worse accuracy than the first random forest model (0.9989). 
+
+## Conclusion and predicting on the original test data set
+
+As a conclusion about our analysis we can surely say that the best prediction model about the manner that the six participants did their exercises is the one who was created with random forest algorithm, without using cross validation, that has an almost perfect accuracy of 0.9996.
+
+The results of predicting with our best fit model on the original test data set are the following.
+
+```{r results, echo=TRUE}
+finalPRED<-predict(fitRF,test)
+finalPRED
+```
+
+
+## Appendix
+
+#### Figure 1 #####
+```{r clTreeCM, echo=FALSE}
+confusionMatrix(predCL_CV_PR,myTest$classe) 
+```
+
+#### Figure 2 ####
+```{r rfModel, echo=FALSE}
+confusionMatrix(predRF,myTest$classe)
+```
+
+#### Figure 3 ####
+```{r rfModelCV, echo=FALSE}
+confusionMatrix(predRF_CV,myTest$classe)
+```
